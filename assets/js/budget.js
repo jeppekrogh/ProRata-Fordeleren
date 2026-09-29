@@ -368,29 +368,63 @@ function renderPersonResult(personId, amounts) {
   dl.innerHTML = rows.join("");
 }
 
-function shareOf(income, total, target) {
-  return Math.round((income / total) * target);
-}
+function distribute(people, spending, incomes) {
+  const shared = spending.filter((c) => c.kind === "shared");
+  const personal = spending.filter((c) => c.kind === "personal");
+  const totalShared = shared.reduce((sum, c) => sum + c.target, 0);
+  const personalTotal = personal.reduce((sum, c) => sum + c.target, 0);
+  const capacityOf = (id) => Math.max(0, incomes[id] - personalTotal);
 
-function calcPerson(income, totalIncome) {
-  const spending = {};
-  let leftover = income;
-  let hasShortfall = false;
-  for (const c of config.spending) {
-    const ideal =
-      c.kind === "personal"
-        ? c.target
-        : shareOf(income, totalIncome, c.target);
-    const actual = Math.max(0, Math.min(leftover, ideal));
-    if (ideal - actual > 1) hasShortfall = true;
-    spending[c.id] = actual;
-    leftover -= actual;
+  // Shared costs are split by income, but nobody contributes more than what
+  // is left after their fixed personal amounts. The rest is re-split by
+  // income among the others, so one person's surplus covers another's
+  // personal shortfall instead of sitting idle.
+  const sharedTotal = {};
+  let active = people.map((p) => p.id);
+  let remaining = totalShared;
+  for (;;) {
+    const activeIncome = active.reduce((sum, id) => sum + incomes[id], 0);
+    const idealFor = (id) =>
+      activeIncome > 0 ? (incomes[id] / activeIncome) * remaining : remaining;
+    const capped = active.filter((id) => idealFor(id) > capacityOf(id));
+    if (!capped.length) {
+      for (const id of active) sharedTotal[id] = Math.round(idealFor(id));
+      break;
+    }
+    for (const id of capped) {
+      sharedTotal[id] = capacityOf(id);
+      remaining -= sharedTotal[id];
+    }
+    active = active.filter((id) => !capped.includes(id));
   }
-  return {
-    spending,
-    forbrug: Math.max(0, Math.round(leftover)),
-    hasShortfall,
-  };
+
+  const result = {};
+  for (const p of people) {
+    const amounts = {};
+    let leftover = incomes[p.id];
+    let allocated = 0;
+    let cumulative = 0;
+    for (const c of shared) {
+      cumulative += c.target;
+      const upTo =
+        totalShared > 0
+          ? Math.round((sharedTotal[p.id] * cumulative) / totalShared)
+          : 0;
+      amounts[c.id] = upTo - allocated;
+      allocated = upTo;
+    }
+    leftover -= allocated;
+    for (const c of personal) {
+      const actual = Math.max(0, Math.min(leftover, c.target));
+      amounts[c.id] = actual;
+      leftover -= actual;
+    }
+    result[p.id] = {
+      spending: amounts,
+      forbrug: Math.max(0, Math.round(leftover)),
+    };
+  }
+  return result;
 }
 
 function calculateTransfers() {
@@ -403,13 +437,11 @@ function calculateTransfers() {
   const totalIncome = Object.values(incomes).reduce((a, b) => a + b, 0);
   if (totalIncome <= 0) return;
 
-  const perPerson = {};
+  const perPerson = distribute(config.people, config.spending, incomes);
   let totalRest = 0;
   config.people.forEach((p) => {
-    const r = calcPerson(incomes[p.id], totalIncome);
-    perPerson[p.id] = r;
-    totalRest += r.forbrug;
-    renderPersonResult(p.id, r);
+    totalRest += perPerson[p.id].forbrug;
+    renderPersonResult(p.id, perPerson[p.id]);
   });
 
   const totalRequired = config.spending.reduce(
