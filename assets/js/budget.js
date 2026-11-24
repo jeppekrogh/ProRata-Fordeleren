@@ -214,6 +214,10 @@ function formatNumber(value) {
   return Number(value).toLocaleString("da-DK");
 }
 
+function incomeText(income) {
+  return `– ${formatNumber(income)}`;
+}
+
 function escapeHtml(s) {
   return String(s ?? "")
     .replace(/&/g, "&amp;")
@@ -339,8 +343,9 @@ function renderResultCards() {
     .map((p, i) => {
       const accent = accentFor(i);
       return `<section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <header class="mb-2">
+        <header class="mb-2 flex items-baseline gap-2">
           <h2 class="text-base font-semibold ${accent.headerClass}">${escapeHtml(p.name)}</h2>
+          <span class="text-sm tabular-nums text-slate-400" data-person-income-label="${p.id}"></span>
         </header>
         <dl class="text-sm" data-person-result="${p.id}"></dl>
       </section>`;
@@ -355,6 +360,12 @@ function renderPersonResult(personId, amounts) {
   const idx = config.people.findIndex((p) => p.id === personId);
   if (idx === -1) return;
   const accent = accentFor(idx);
+  const incomeLabel = resultCards.querySelector(
+    `[data-person-income-label="${personId}"]`,
+  );
+  if (incomeLabel) {
+    incomeLabel.textContent = amounts ? incomeText(amounts.income) : "";
+  }
   const rows = [];
   config.spending.forEach((c) => {
     rows.push(rowHtml(c.label, amounts?.spending[c.id] ?? null, accent));
@@ -420,6 +431,7 @@ function distribute(people, spending, incomes) {
       leftover -= actual;
     }
     result[p.id] = {
+      income: incomes[p.id],
       spending: amounts,
       forbrug: Math.max(0, Math.round(leftover)),
     };
@@ -981,6 +993,7 @@ function downloadImage() {
     separator: "#e2e8f0",
     label: "#475569",
     amount: "#0f172a",
+    income: "#94a3b8",
   };
   const totalTheme = {
     bg: "#ffffff",
@@ -1024,6 +1037,14 @@ function downloadImage() {
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
     ctx.fillText(title, innerLeft, ry + headerHeight / 2);
+    const titleWidth = ctx.measureText(title).width;
+    ctx.fillStyle = theme.income;
+    ctx.font = labelFont;
+    ctx.fillText(
+      incomeText(person.income),
+      innerLeft + titleWidth + 12,
+      ry + headerHeight / 2,
+    );
     ry += headerHeight;
 
     rows.forEach((row) => {
