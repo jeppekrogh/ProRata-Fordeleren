@@ -1,0 +1,41 @@
+version: "3"
+
+vars:
+  PORT: '{{.PORT | default "8000"}}'
+
+tasks:
+  default:
+    cmds:
+      - task --list
+    silent: true
+
+  install:
+    desc: Install the npm packages from the lock file
+    cmds:
+      - npm ci
+    sources:
+      - package.json
+      - package-lock.json
+    generates:
+      - node_modules/.package-lock.json
+
+  build:
+    desc: Build the CSS and the JavaScript bundle
+    deps: [install]
+    cmds:
+      - npm run build
+    sources:
+      - index.html
+      - assets/js/**/*.js
+      - assets/css/tailwind.css
+      - tailwind.config.cjs
+      - rollup.config.js
+    generates:
+      - dist/bundle.js
+      - assets/css/material-tailwind.css
+
+  start:
+    desc: Build the site and serve it on http://localhost:{{.PORT}} (stop with Ctrl+C)
+    deps: [build]
+    cmds:
+      - python3 -m http.server {{.PORT}} --bind 127.0.0.1
